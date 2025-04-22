@@ -20,57 +20,70 @@ const utilities = {
 async function getSafeMeme() {
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox']
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
+    ]
   });
 
-  try {
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 800 });
+  let retries = 3;
+  
+  while (retries > 0) {
+    try {
+      const page = await browser.newPage();
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      await page.setViewport({ width: 1280, height: 800 });
 
-    // Search popular memes
-    await page.goto('https://www.pinterest.com/search/pins/?q=funny%20memes&rs=typed', {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    });
+      // Bypass headless detection
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      });
 
-    await utilities.randomDelay();
+      console.log('Loading Pinterest...');
+      await page.goto('https://www.pinterest.com/search/pins/?q=funny%20memes&rs=typed', {
+        waitUntil: 'networkidle2',
+        timeout: 120000
+      });
 
-    // Scroll multiple times
-    for (let i = 0; i < 10; i++) {
-      await page.evaluate(() => window.scrollBy(0, 1500));
-      await utilities.delay(1000);
+      console.log('Page loaded, scrolling...');
+      await utilities.randomDelay();
+
+      for (let i = 0; i < 10; i++) {
+        await page.evaluate(() => window.scrollBy(0, 1500));
+        await utilities.delay(1000);
+      }
+
+      const memeUrls = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('img'))
+          .map(img => {
+            let src = img.src;
+            if (src.includes('/236x/')) src = src.replace('/236x/', '/originals/');
+            else if (src.includes('/474x/')) src = src.replace('/474x/', '/originals/');
+            else if (src.includes('/736x/')) src = src.replace('/736x/', '/originals/');
+            return src;
+          })
+          .filter(src =>
+            src.startsWith('https://i.pinimg.com/originals/') &&
+            /\.(jpg|jpeg|png)$/i.test(src)
+          );
+      });
+
+      if (!memeUrls.length) throw new Error('No copyright-safe memes found');
+      return memeUrls[Math.floor(Math.random() * memeUrls.length)];
+
+    } catch (error) {
+      console.error(`Attempt ${4-retries} failed:`, error.message);
+      retries--;
+      if (retries === 0) throw error;
+      await utilities.delay(10000); // Wait 10 seconds before retry
+    } finally {
+      await browser.close();
     }
-    
-
-    // Get images with safety filters
-    const memeUrls = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('img'))
-        .map(img => {
-          // Get high-res version from common formats
-          let src = img.src;
-          if (src.includes('/236x/')) {
-            src = src.replace('/236x/', '/originals/');
-          } else if (src.includes('/474x/')) {
-            src = src.replace('/474x/', '/originals/');
-          } else if (src.includes('/736x/')) {
-            src = src.replace('/736x/', '/originals/');
-          }
-          return src;
-        })
-        .filter(src =>
-          src.startsWith('https://i.pinimg.com/originals/') &&
-          /\.(jpg|jpeg|png)$/i.test(src)
-        );
-    });
-    
-    
-
-    if (!memeUrls.length) throw new Error('No copyright-safe memes found');
-    return memeUrls[Math.floor(Math.random() * memeUrls.length)];
-
-  } finally {
-    await browser.close();
   }
 }
 
