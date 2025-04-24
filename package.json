@@ -1,20 +1,35 @@
 {
-  "name": "this",
+  "name": "instagram-meme-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Automated meme poster for Instagram that scrapes Pinterest for content",
   "main": "meme-poster.js",
   "scripts": {
-     "start": "node meme-poster.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node meme-poster.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "debug": "NODE_DEBUG=instagram,puppeteer node meme-poster.js",
+    "clean": "rm -rf node_modules package-lock.json && npm install"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "instagram",
+    "bot",
+    "automation",
+    "memes",
+    "puppeteer"
+  ],
+  "author": "Your Name",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.8.4",
     "dotenv": "^16.5.0",
     "instagram-private-api": "^1.46.1",
+    "puppeteer": "^21.7.0",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-extra-plugin-adblocker": "^2.13.6",
+    "random-useragent": "^0.5.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=7.0.0"
   }
 }
