@@ -1,4 +1,22 @@
-// Add at the top of your file
+require('dotenv').config();
+const { IgApiClient } = require('instagram-private-api');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+
+// ======================
+// UTILITY FUNCTIONS (Moved to top-level)
+// ======================
+const utilities = {
+  delay: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+  randomDelay: () => utilities.delay(3000 + Math.random() * 5000)
+};
+
+// ======================
+// CONSTANTS
+// ======================
 const HINGLISH_KEYWORDS = [
   'desi%20memes',
   'indian%20memes',
@@ -6,24 +24,86 @@ const HINGLISH_KEYWORDS = [
   'hindi%20memes'
 ];
 
-// Modify your getSafeMeme function to accept a keyword
+// ======================
+// PINTEREST SCRAPER (Fixed page reference)
+// ======================
 async function getSafeMeme(keyword = 'funny%20memes') {
-  // ... existing browser setup code ...
-  
-  await page.goto(`https://www.pinterest.com/search/pins/?q=${keyword}&rs=typed`, {
-    waitUntil: 'networkidle2',
-    timeout: 120000
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
+    ]
   });
-  // ... rest of the function ...
+
+  let retries = 3;
+  let page; // Declare page variable here
+  
+  while (retries > 0) {
+    try {
+      page = await browser.newPage(); // Now properly scoped
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      await page.setViewport({ width: 1280, height: 800 });
+
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      });
+
+      console.log('Loading Pinterest...');
+      await page.goto(`https://www.pinterest.com/search/pins/?q=${keyword}&rs=typed`, {
+        waitUntil: 'networkidle2',
+        timeout: 120000
+      });
+
+      console.log('Page loaded, scrolling...');
+      await utilities.randomDelay();
+
+      for (let i = 0; i < 10; i++) {
+        await page.evaluate(() => window.scrollBy(0, 1500));
+        await utilities.delay(1000);
+      }
+
+      const memeUrls = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('img'))
+          .map(img => {
+            let src = img.src;
+            if (src.includes('/236x/')) src = src.replace('/236x/', '/originals/');
+            else if (src.includes('/474x/')) src = src.replace('/474x/', '/originals/');
+            else if (src.includes('/736x/')) src = src.replace('/736x/', '/originals/');
+            return src;
+          })
+          .filter(src =>
+            src.startsWith('https://i.pinimg.com/originals/') &&
+            /\.(jpg|jpeg|png)$/i.test(src)
+          );
+      });
+
+      if (!memeUrls.length) throw new Error('No copyright-safe memes found');
+      return memeUrls[Math.floor(Math.random() * memeUrls.length)];
+
+    } catch (error) {
+      console.error(`Attempt ${4-retries} failed:`, error.message);
+      retries--;
+      if (retries === 0) throw error;
+      await utilities.delay(10000);
+    } finally {
+      if (page) await page.close();
+      await browser.close();
+    }
+  }
 }
 
-// Improved safeInstagramPost function
+// ======================
+// INSTAGRAM POSTER
+// ======================
 async function safeInstagramPost(imagePath) {
   const ig = new IgApiClient();
   ig.state.generateDevice(process.env.INSTA_USERNAME);
-
-  // Add proxy support if needed
-  // ig.request.defaults.proxy = process.env.PROXY;
 
   const sessionPath = path.join(__dirname, 'ig-session.json');
 
@@ -41,7 +121,6 @@ async function safeInstagramPost(imagePath) {
       console.log('✅ Logged in and saved session');
     }
 
-    // Better caption with more hashtags
     const captions = [
       `😂 Daily dose of laughter for you! ${Math.random() > 0.5 ? 'Hope this makes your day better!' : 'Enjoy!'}\n\n` +
       `Credits to original creator 🙏\n` +
@@ -55,7 +134,7 @@ async function safeInstagramPost(imagePath) {
     const caption = captions[Math.floor(Math.random() * captions.length)];
 
     console.log('📤 Uploading post...');
-    await utilities.randomDelay(); // Add delay before posting
+    await utilities.randomDelay();
     
     await ig.publish.photo({
       file: await fs.promises.readFile(imagePath),
@@ -63,12 +142,11 @@ async function safeInstagramPost(imagePath) {
     });
 
     console.log('✅ Post successful!');
-    await utilities.delay(10000); // Wait after posting
+    await utilities.delay(10000);
 
   } catch (error) {
     if (error.message.includes('checkpoint')) {
       console.error('❌ Instagram requires checkpoint verification!');
-      // You might want to delete the session file here
       if (fs.existsSync(sessionPath)) {
         fs.unlinkSync(sessionPath);
       }
@@ -77,11 +155,12 @@ async function safeInstagramPost(imagePath) {
   }
 }
 
-// Modified main function to rotate between English and Hinglish
+// ======================
+// MAIN FUNCTION
+// ======================
 async function main() {
   let tempFile;
   try {
-    // Alternate between English and Hinglish memes
     const useHinglish = Math.random() > 0.5;
     const keyword = useHinglish 
       ? HINGLISH_KEYWORDS[Math.floor(Math.random() * HINGLISH_KEYWORDS.length)]
@@ -108,9 +187,8 @@ async function main() {
     await safeInstagramPost(tempFile);
   } catch (error) {
     console.error('❌ Failed:', error.message);
-    // If it's a rate limit error, wait longer
     if (error.message.includes('rate limit') || error.message.includes('too many')) {
-      const waitTime = 60 * 60 * 1000; // 1 hour
+      const waitTime = 60 * 60 * 1000;
       console.log(`⏳ Rate limited, waiting ${waitTime/60000} minutes...`);
       await utilities.delay(waitTime);
     }
@@ -121,20 +199,20 @@ async function main() {
   }
 }
 
-// SINGLE execution block with proper intervals
+// ======================
+// EXECUTION BLOCK
+// ======================
 (async () => {
   while (true) {
     try {
       await main();
       
-      // Random delay between 40-120 minutes to appear more human
       const delayInMinutes = Math.floor(Math.random() * 81) + 40;
       console.log(`🕒 Waiting ${delayInMinutes} minutes before next post...`);
       await utilities.delay(delayInMinutes * 60 * 1000);
       
     } catch (error) {
       console.error('Fatal error:', error);
-      // If major error, wait 3 hours before retrying
       await utilities.delay(3 * 60 * 60 * 1000);
     }
   }
